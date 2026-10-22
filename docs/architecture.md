@@ -1,96 +1,101 @@
-# 아키텍처
+# 우왕좌왕 미로: 2인·4인 협동 — 아키텍처
+
+기준: 2026-10-22 현재 개발 코드. [게임 소개](../README.md) · [문제 해결 사례](case-studies.md)
 
 ## 설계 목표
 
-WASD2의 핵심 과제는 여러 플레이어의 입력을 하나의 캐릭터 상태로 안전하게 합치면서, 방 생성부터 게임 결과 저장까지 온라인 흐름을 일관되게 유지하는 것입니다.
+여러 플레이어의 입력을 하나의 캐릭터에 합치면서 입력 반응, 호스트의 최종 판정, 세션 종료와 기록 저장의 기준을 일관되게 유지합니다.
 
-- 2인·4인 플레이에 따라 입력 권한을 동적으로 분배
-- 클라이언트의 임의 방향 요청을 서버에서 검증
-- Lobby, Relay, Netcode 세션의 생명주기 통합
-- 모든 참가자에게 동일한 게임 진행 상태 제공
-- 개인 최고 기록과 팀 순위를 중복 없이 저장
+- 2인은 각 2방향, 4인은 각 1방향 담당
+- 클라이언트는 자신의 입력을 예측하고 호스트는 최종 이동을 확정
+- 이동 계산과 별·위험 지형·클리어의 부수 효과 분리
+- 앱·세션·씬의 수명을 구분
+- 개인 기록 저장과 순위 제출의 실패 분리
 
-## 전체 구조
+## 책임과 수명
 
-```mermaid
-flowchart TB
-    APP["AppBootstrap"] --> AUTH["Unity Authentication"]
-    AUTH --> PROFILE["Cloud Player Profile"]
-    APP --> UI["Lobby / Map UI"]
-    UI --> SESSION["NetworkSessionController"]
-    SESSION --> LOBBY["Unity Lobby"]
-    SESSION --> RELAY["Unity Relay"]
-    SESSION --> NGO["Netcode for GameObjects"]
-    NGO --> ROOM["NetworkRoomState"]
-    ROOM --> ASSIGN["WASD Key Assignment"]
-    ASSIGN --> GAME["Game Scene"]
-    INPUT["Keyboard / Touch"] --> CTRL["Input Controller"]
-    CTRL --> RPC["Input RPC"]
-    RPC --> VALIDATE["Server Key Validation"]
-    VALIDATE --> CHARACTER["Shared Character"]
-    CHARACTER --> CLIENTS["Synced Clients"]
-    GAME --> RUN["GameRunNetworkState"]
-    RUN --> CLOUD["Cloud Save / Leaderboards"]
-```
+| 구분 | 주요 구성 | 역할 |
+|---|---|---|
+| Domain | 키 배정 정책, 공유 이동 규칙, 기록 비교 정책 | Unity 서비스와 분리된 게임 규칙 |
+| Application | 이동 권한·예측, 방·세션·프로필·기록 UseCase, Port | 작업 순서와 실패·종료 정책 |
+| Infrastructure | UGS·Relay·NGO·Cloud Save 어댑터 | 외부 SDK와 Port 연결 |
+| Presentation | ViewModel, View, 공유 캐릭터 표시 | 입력 전달과 상태 표시 |
+| Bootstrap | AppCompositionRoot, AppScope, SceneEntryPoint | 의존성 조립과 수명 연결 |
 
-## 세션 계층
+`AppCompositionRoot`가 앱 수명 객체를 생성합니다. 온라인 세션 의존성은 생성 방법만 등록하고, `SessionLifetime.Begin`에서 필요한 시점에 만듭니다. `SessionScope.Dispose`는 취소 토큰, 구독과 주기 작업을 정리합니다. 씬 전용 연결은 각 `SceneEntryPoint`에서 담당합니다.
 
-`AppBootstrap`은 인터넷 연결, Unity Services, 익명 인증과 프로필 로딩을 처리합니다. 실패하면 재시도 가능한 오류 UI를 표시합니다.
+Lobby는 방 검색과 메타데이터, Relay는 연결 경로, Netcode for GameObjects는 참가자 연결과 상태 전달을 담당합니다.
 
-`NetworkSessionController`는 다음 책임을 갖습니다.
-
-- Lobby 생성·검색과 선택 맵 메타데이터 관리
-- Relay Allocation과 Join Code 연결
-- Unity Transport의 Host·Client 설정
-- Host heartbeat와 방 상태 관리
-- Host·Client 종료 시 Lobby 정리
-- Host 이탈과 연결 해제 후 로비 복귀
-- 배정 키와 닉네임을 씬 전환 사이에 보존
-
-Lobby는 방 검색을, Relay는 연결 경로를, Netcode for GameObjects는 게임 상태 동기화를 담당합니다.
-
-## 룸과 입력 권한
-
-`NetworkRoomState`는 참가자, 닉네임, 선택 맵과 배정 키를 관리합니다.
-
-- 2명: 한 명당 2개의 이동 키
-- 4명: 한 명당 1개의 이동 키
-- Host만 키 배정과 게임 시작 가능
-- 모든 참가자에게 같은 배정 결과 전달
+## 입력에서 확정까지
 
 ```mermaid
 sequenceDiagram
-    participant P as Player
-    participant C as Input Controller
-    participant S as Server
-    participant M as Shared Character
-    participant O as Other Clients
-    P->>C: Assigned key input
-    C->>S: RequestMoveDirection RPC
-    S->>S: Validate client and key
-    alt Valid
-        S->>M: Update direction
-        M->>O: Sync state
-    else Invalid
-        S-->>C: Ignore request
-    end
+    participant P as 로컬 입력
+    participant C as ClientMovePredictor
+    participant H as HostMoveAuthority
+    participant R as SharedMovementRules
+    participant V as SharedCharacterView
+    P->>C: TryCreateCommand
+    C->>V: 다음 로컬 이동 틱부터 예측
+    P->>H: RPC로 이동 명령 전달
+    H->>H: Receive · 참가자와 명령 검증
+    H->>R: Step · 입력 적용과 이동 계산
+    H-->>C: 확정 상태 · 처리 번호
+    C->>C: ApplyConfirmed · 처리된 명령 제거
+    C->>R: TryPredict · 미처리 자기 입력 재계산
+    C->>V: 논리 위치 갱신 · 표시 오차 보정
 ```
 
-클라이언트가 로컬 배정 키를 먼저 확인하고, 서버가 Client ID와 배정 키를 다시 대조해 최종 권한을 보장합니다.
+### 호스트 판정
 
-## 서버 권한형 이동
+`HostMoveAuthority.Receive`에서 참가자, 순서 번호, 라운드 식별자(Epoch), 담당 키와 이동 상태를 확인합니다. 호스트 자신의 입력도 같은 경로를 거칩니다. `Step`은 적용 틱 순으로 명령을 처리하며 같은 틱에서는 수신 순서를 사용합니다.
 
-`SharedCharacterController`는 서버가 이동 결과를 결정합니다. 위치, 방향, 이동 가능 여부와 버전을 `ServerMoveState`로 발행합니다. 방향 변경과 정지는 즉시 공유하고, 이동 위치는 일정 거리 이상 변했을 때 갱신해 트래픽과 반응성의 균형을 맞췄습니다.
+### 클라이언트 예측
 
-## 게임 진행 상태
+`ClientMovePredictor`는 명령을 보관하고 다음 로컬 이동 틱부터 반영합니다. 확정 상태를 받으면 오래된 상태를 무시하고, 처리 번호에 포함된 명령을 제거합니다. 이어서 확정 상태부터 아직 처리되지 않은 자기 명령만 재적용합니다. 대기 명령과 예측 거리에는 한도를 둡니다.
 
-`GameRunNetworkState`는 수집한 별, 클리어 여부와 시간, 충돌 횟수, run ID와 서버 기준 시작 시각을 서버 쓰기 권한으로 관리합니다. 모든 참가자가 같은 결과를 확인하며 Host가 저장과 랭킹 제출을 대표로 수행합니다.
+### 제한적 되감기
 
-## 저장과 랭킹
+호스트는 짧게 늦게 도착한 입력에 대해 이동 이력과 모든 플레이어의 명령을 다시 계산합니다. 설정상 최대 0.2초 구간을 요청하며 내부적으로 최대 32틱으로 제한합니다.
 
-- **Cloud Save:** 맵·인원 조합별 개인 최고 기록
-- **Leaderboards:** 클리어 시간과 충돌 횟수를 반영한 팀 순위
-- **Metadata:** 닉네임, 팀원, 맵, 인원, 기록과 run ID
-- **중복 제거:** 하나의 협동 플레이를 run ID 기준으로 한 번만 표시
+이미 외부에 전달한 별·위험 지형·골 판정 이전으로는 되감지 않습니다. 재계산 중 과거에 새로운 판정 접촉이 생기면 되감기를 취소하고 현재 틱에 입력을 적용합니다. 게임 판정을 취소·재발행하는 범용 롤백 시스템은 아닙니다.
 
-UI, 세션, 룸, 게임 진행과 저장 책임을 분리해 씬 전환과 온라인 예외 상황에서도 각 상태의 수명을 명확하게 유지했습니다.
+### 논리 상태와 표시
+
+`SharedMovementRules`가 공통 이동 규칙을 담당하고 충돌 조회는 인터페이스로 전달받습니다. `SharedCharacterView`는 논리 루트와 VisualRoot를 구분해 확정 상태 보정과 화면 표시를 처리합니다. 현재 캐릭터 이동은 Rigidbody2D 보간에 의존하지 않습니다.
+
+## 게임 진행과 이탈
+
+별 수집·위험 지형·클리어 등 최종 게임 판정은 호스트 측 흐름에서 처리합니다. 클라이언트 예측은 이러한 부수 효과를 실행하지 않습니다.
+
+`HandlePlayerDisconnectedUseCase`의 정책:
+
+| 상황 | 처리 |
+|---|---|
+| 게임 중 어느 참가자든 이탈 | 세션 종료, 로비 복귀 |
+| 대기방에서 참가자 이탈 | 호스트는 방 유지 |
+| 대기방에서 호스트 이탈 | 참가자는 로비 복귀 |
+
+종료 처리는 `LeaveSessionUseCase`와 세션 수명 관리로 연결됩니다.
+
+## 프로필·기록·계정
+
+`SubmitRunRecordUseCase.ExecuteAsync`는 다음 순서로 실행합니다.
+
+1. 기록 조건 확인
+2. 서비스 초기화·인증 보장
+3. 현재 프로필 저장
+4. Cloud Save 개인 기록 저장
+5. Leaderboards 제출
+
+초기화·프로필·개인 기록 저장이 실패하면 뒤의 제출을 진행하지 않습니다. 리더보드가 실패 결과를 반환해도 이미 저장된 개인 기록 결과는 유지합니다. 두 외부 서비스가 하나의 원자적 트랜잭션을 이루는 것은 아닙니다.
+
+계정 연결·해제와 복구는 현재 업데이트 작업입니다. 기존 익명 플레이어 ID에 Google Play Games 인증을 연결하며, 복구 시에는 새 계정 생성을 금지하는 조건을 사용합니다. 배포본과 실기기 검증 범위는 별도로 확인해야 합니다.
+
+## 진단
+
+- `MoveInputLatencyTrace`: 입력·로컬 적용·화면 반영·호스트 확정 구간
+- `RelayLatencyDiagnostics`: 애플리케이션 RTT와 Transport RTT 등 연결 진단
+- `UnityTextLogWriter`: 실행 로그의 텍스트 파일 저장
+
+RTT와 화면 반영 시간은 서로 다른 지표이며, 이 문서는 측정되지 않은 성능 개선 수치를 주장하지 않습니다.

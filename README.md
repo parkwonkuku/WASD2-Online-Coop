@@ -1,104 +1,71 @@
-# WASD2 — Shared-Input Online Co-op
+# 우왕좌왕 미로: 2인·4인 협동
 
-> 2명 또는 4명의 플레이어가 W·A·S·D 입력을 나눠 하나의 캐릭터를 함께 조작하는 Unity 기반 온라인 협동 게임입니다.
+> 방향키를 나눠 맡고 하나의 캐릭터를 함께 움직이는 Unity 기반 온라인 협동 미로 게임입니다.
 
-[아키텍처](docs/architecture.md) · [문제 해결 사례](docs/case-studies.md)
+[Google Play에서 보기](https://play.google.com/store/apps/details?id=com.parkwonkuk.kungjakjak) · [아키텍처](docs/architecture.md) · [문제 해결 사례](docs/case-studies.md)
 
 ## 프로젝트 개요
 
-플레이어마다 이동 키가 무작위로 배정됩니다. 2인 플레이에서는 한 명당 두 개의 키를, 4인 플레이에서는 한 명당 하나의 키를 담당합니다. 서로의 입력을 맞춰 장애물을 피하고 별을 수집한 뒤 목표 지점에 도달해야 합니다.
+2인 플레이에서는 한 명당 두 방향, 4인 플레이에서는 한 명당 한 방향을 무작위로 배정받습니다. 각자 맡은 방향을 입력해 장애물을 피하고 별을 수집한 뒤 목표 지점에 도달합니다. 서로의 입력이 한 캐릭터에 합쳐지므로 타이밍과 의사소통이 핵심입니다.
 
-- **엔진:** Unity 6000.3.6f1, URP 17.3
-- **언어:** C#
-- **플랫폼:** Android
-- **프로젝트 형태:** 개인 프로젝트
-- **개발 기록:** 30개 커밋, 8개 Pull Request 병합
-- **핵심 기술:** Netcode for GameObjects, Lobby, Relay, Cloud Save, Leaderboards
+| 항목 | 내용 |
+|---|---|
+| 게임명 | 우왕좌왕 미로: 2인·4인 협동 |
+| 개발 형태 | 1인 개발 — 기획, 클라이언트, 온라인 기능, UI, Android 배포 담당 |
+| 개발 기간 | 2026년 5월부터 개발 및 업데이트 진행 |
+| 플랫폼·출시 | Android · Google Play 출시 |
+| 엔진·언어 | Unity 6000.3.6f1 · C# · URP |
+| 네트워크 | Netcode for GameObjects 2.11.2 · Unity Transport 2.7.3 |
+| 온라인 서비스 | Unity Authentication · Lobby · Relay · Cloud Save · Leaderboards |
 
-## 출시 정보
+이 저장소는 게임의 설계와 문제 해결 과정을 소개하는 공개 기술 포트폴리오입니다. 전체 게임 소스와 실행 파일은 포함하지 않습니다.
 
-- **출시 플랫폼:** Android
-- **상태:** 출시 준비 중
-
-상용 출시를 준비 중인 프로젝트이므로 실행 파일과 전체 소스 코드는 공개하지 않습니다. 이 저장소는 게임의 핵심 아이디어, 기술적 의사결정, 문제 해결 과정과 플레이 화면을 소개하는 채용 포트폴리오입니다.
+**문서 기준: 2026-10-22의 현재 개발 프로젝트.** 출시된 게임의 소개와 현재 코드의 기술 설명을 함께 제공합니다. Google Play 배포본과 개발 중인 업데이트의 기능은 다를 수 있습니다.
 
 ## 핵심 게임플레이
 
-1. 2명 또는 4명의 플레이어가 온라인 방에 참가합니다.
-2. W·A·S·D 키가 플레이어 수에 맞춰 무작위로 분배됩니다.
-3. 각자 맡은 방향을 입력해 하나의 캐릭터를 협동 조작합니다.
+1. 2명 또는 4명이 온라인 방에 참가합니다.
+2. 이동 방향을 무작위로 나누어 맡습니다.
+3. 키보드 또는 모바일 터치로 하나의 캐릭터를 협동 조작합니다.
 4. 장애물과 위험 요소를 피하고 별을 수집해 목표 지점에 도달합니다.
-5. 클리어 시간과 충돌 횟수를 기준으로 기록을 저장하고 순위를 비교합니다.
+5. 맵·플레이 인원별 개인 기록과 팀 순위를 확인합니다.
 
-## 게임 화면
+## 주요 구현
 
-플레이 영상과 스크린샷은 공개 가능한 출시 준비 빌드를 기준으로 추가할 예정입니다.
-
-## 주요 시스템
-
-| 시스템 | 구현 내용 |
+| 주제 | 현재 프로젝트의 구현 |
 |---|---|
-| 온라인 세션 | Unity Lobby 검색·생성, Relay 참가 코드, Host/Client 연결과 세션 종료 처리 |
-| 공유 입력 | 2인 플레이 시 2키, 4인 플레이 시 1키를 무작위 배정 |
-| 권한 검증 | 클라이언트 입력을 서버에서 담당 키와 대조한 뒤 이동 상태 반영 |
-| 상태 동기화 | 서버 권한형 캐릭터 위치·방향·이동 가능 상태와 게임 진행 상태 동기화 |
-| 룸 시스템 | 참가자·닉네임·선택 맵·배정 키를 NetworkList와 NetworkVariable로 공유 |
-| 게임 진행 | 별 수집, 충돌 집계, 클리어 판정, 재시작과 로비 복귀 |
-| 기록 시스템 | Cloud Save 기반 개인 최고 기록, Leaderboards 기반 플레이 인원·맵별 순위 |
-| 맵 시스템 | 경로·루프·장애물·시작점·도착점을 구성하는 절차적 맵 생성 |
-| 모바일 대응 | 터치 방향 입력, 전체 화면 처리, 연결 오류 재시도 UI와 AdMob 연동 |
-| 오디오 | 씬 전환에도 유지되는 배경음·효과음 설정 |
+| 입력 검증 | 호스트가 참가자·배정 키·명령 순서·라운드 식별자·이동 가능 상태를 확인 |
+| 입력 예측 | 자신의 입력을 호스트 응답 전에 적용하고, 확정 상태에서 미처리 입력을 재계산 |
+| 제한적 되감기 | 짧게 늦은 입력을 이동 이력에 반영하되, 이미 발생한 별·위험 지형·골 판정 경계를 보호 |
+| 화면 보정 | 논리 위치와 표시 위치를 분리해 이동 결과와 화면 보정의 책임을 구분 |
+| 세션 관리 | 앱·세션·씬 수명 분리, 방 생성·참가 시 세션 생성, 종료 시 구독·주기 작업 정리 |
+| 이탈 처리 | 게임 중 누구든 이탈하면 세션 종료와 로비 복귀, 대기방에서는 참가자 이탈 시 호스트가 방 유지 |
+| 기록 저장 | Cloud Save 개인 기록과 Leaderboards 제출의 결과를 분리 |
+| 지연 진단 | 입력·로컬 적용·화면 반영·호스트 확정 시점과 RTT를 구분하고 로그 파일 저장 |
+| 모바일 서비스 | 익명 인증, AdMob 광고·UMP 동의, 사운드 설정과 개인정보처리방침 안내 |
 
-## 담당 영역
+### 현재 업데이트 작업
 
-개인 프로젝트로 게임 기획부터 클라이언트와 온라인 시스템까지 전체 개발을 담당했습니다.
+Google Play Games 계정 연결·해제와 기존 계정 복구 흐름을 구현 중입니다. 익명 계정 연결 시 기존 Unity 플레이어 ID를 유지하고, 복구 로그인은 새 계정을 생성하지 않는 방식으로 구성했습니다. 이 항목은 배포 완료나 모든 실기기 시나리오 검증을 의미하지 않습니다.
 
-### 멀티플레이와 세션
-
-- Unity Authentication 익명 로그인과 서비스 초기화
-- Lobby 생성·검색, Relay 할당과 참가 코드 연결
-- Host heartbeat와 방 상태 관리
-- Host 이탈·참가자 연결 해제·네트워크 오류 예외 처리
-
-### 공유 캐릭터 조작
-
-- 플레이 인원에 따른 W·A·S·D 키 분배
-- 클라이언트 입력 요청과 서버 측 권한 검증
-- 서버 권한형 위치·방향·이동 상태 동기화
-- 키보드와 모바일 터치 입력의 동일한 입력 경로 구성
-
-### 게임과 데이터 시스템
-
-- 별 수집, 충돌, 클리어 시간 동기화
-- 맵·인원별 기록 저장과 팀 단위 리더보드 표시
-- 닉네임과 개인 최고 기록 Cloud Save 연동
-- 맵 선택, 룸, 게임 결과, 랭킹 UI 구현
-
-## 기술적 설계
+## 기술 구조
 
 ```mermaid
 flowchart LR
-    PLAYER["Player Input"] --> CLIENT["Client Input Controller"]
-    CLIENT --> RPC["Input Request RPC"]
-    RPC --> AUTH["Server Key Validation"]
-    AUTH --> CHARACTER["Shared Character State"]
-    CHARACTER --> SYNC["NetworkVariable Sync"]
-    SYNC --> PLAYERS["All Players"]
-
-    LOBBY["Unity Lobby"] --> SESSION["Session Controller"]
-    RELAY["Unity Relay"] --> SESSION
-    SESSION --> ROOM["Network Room State"]
-    ROOM --> GAME["Game Run State"]
-    GAME --> CLOUD["Cloud Save / Leaderboards"]
+    INPUT["키보드 · 터치 입력"] --> COMMAND["이동 명령"]
+    COMMAND --> PREDICT["클라이언트 자기 입력 예측"]
+    COMMAND --> HOST["호스트 검증 · 이동 확정"]
+    HOST --> CONFIRMED["확정 상태 · 처리 번호"]
+    CONFIRMED --> PREDICT
+    PREDICT --> VIEW["논리 위치 · 표시 보정"]
+    HOST --> RUN["별 · 위험 지형 · 클리어 판정"]
+    RUN --> SAVE["개인 기록 저장"]
+    SAVE --> RANK["팀 순위 제출"]
 ```
 
-자세한 구조와 선택 이유는 [아키텍처 문서](docs/architecture.md), 구현 중 해결한 문제는 [문제 해결 사례](docs/case-studies.md)에서 확인할 수 있습니다.
+- [아키텍처](docs/architecture.md): 책임 경계, 실제 호출 흐름과 수명 관리
+- [문제 해결 사례](docs/case-studies.md): 입력 예측·되감기, 이탈 정책, 저장 실패 처리와 진단
 
-## 사용 기술
+## 구현 확인 범위
 
-- **Engine & Rendering:** Unity 6.3, URP, 2D Tilemap
-- **Networking:** Netcode for GameObjects, Unity Transport, Lobby, Relay
-- **Backend:** Unity Authentication, Cloud Save, Leaderboards
-- **Input & Platform:** Input System, Android touch controls
-- **Monetization:** Google Mobile Ads
-- **Collaboration:** Git, GitHub branches, pull requests
+기술 설명은 현재 코드의 정적 확인을 기준으로 작성했습니다. 입력 지연 감소율, 동시 접속 규모, 모든 기기에서의 안정성 등 측정하지 않은 수치는 제시하지 않습니다. 코드 수준 검사와 Unity Play Mode·Android 실기기·다인 접속 검증은 별도로 구분합니다.
